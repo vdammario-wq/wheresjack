@@ -45,8 +45,8 @@
   .scores{display:flex;align-items:center;gap:14px;margin:7px 0 0;font-size:13px;color:var(--navygrijs);}
   .scores b{font-size:17px;margin-left:4px;color:var(--navy);}
   .scores b.neg{color:var(--koraal);}
-  .head-foto{width:150px;flex:none;}
-  .head-foto img{width:100%;height:100%;object-fit:cover;border-radius:10px;display:block;}
+  .head-foto{width:150px;flex:none;position:relative;}
+  .head-foto img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;border-radius:10px;display:block;}
 
   /* wissel */
   .wissel-rij{display:flex;gap:6px;}
@@ -84,7 +84,7 @@
   .foot{display:flex;justify-content:flex-end;gap:6px;margin-top:12px;}
   .foot .corr{font-size:11px;padding:4px 10px;border:1px solid var(--lijn);border-radius:999px;background:transparent;color:var(--navygrijs);cursor:pointer;font-family:inherit;line-height:1.4;}
   .corr-rij{display:flex;gap:6px;margin-top:6px;}
-  .corr-rij input{font-family:inherit;font-size:15px;padding:8px 9px;border:1px solid var(--lijn);border-radius:8px;background:#fff;color:var(--navy);min-width:0;flex:1;}
+  .corr-rij input,.corr-rij select{font-family:inherit;font-size:15px;padding:8px 9px;border:1px solid var(--lijn);border-radius:8px;background:#fff;color:var(--navy);min-width:0;flex:1;}
   .corr-rij button{font-family:inherit;font-size:14px;padding:8px 12px;border-radius:8px;cursor:pointer;background:var(--navy);border:1px solid var(--navy);color:#fff;flex:none;}
   ul.hist .wis{background:none;border:none;color:var(--koraal);font-family:inherit;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;}
   .foot .info{font-size:11px;padding:4px 12px;border:1px solid var(--koraal);border-radius:999px;background:transparent;color:var(--koraal);cursor:pointer;font-family:inherit;line-height:1.4;}
@@ -154,12 +154,16 @@
     <p class="voetnoot">Positief: dagen tegoed. Negatief: dagen te veel gehad. Nul: evenwicht.</p>
   </div>
   <div class="infopaneel" id="corrPaneel">
-    <p>Enkel voor noodgevallen. Vul de juiste stand van Mario in, de stand van Kurt past zich vanzelf aan.</p>
-    <div class="corr-rij"><input type="text" id="corrReden" placeholder="Reden (niet verplicht)"></div>
+    <p>Nieuwe start, enkel voor noodgevallen. De telling begint opnieuw op de dag die je kiest. Alle vroegere wissels worden gewist.</p>
     <div class="corr-rij">
-      <input type="number" id="corrStand" step="1">
-      <button id="btnCorr">Pas aan</button>
+      <input type="date" id="startDatum">
+      <select id="startHouder"><option value="Mario">Bij Mario</option><option value="Kurt">Bij Kurt</option></select>
     </div>
+    <div class="corr-rij">
+      <input type="number" id="startStand" step="1" placeholder="Stand Mario">
+      <button id="btnStart">Start</button>
+    </div>
+    <p class="voetnoot">Datum: de eerste dag die meetelt voor wie Jack dan heeft. Stand: de stand van Mario op de avond vóór die dag. Kurt krijgt automatisch het omgekeerde.</p>
     <p class="melding" id="corrMelding"></p>
     <ul class="hist" id="corrLijst"></ul>
   </div>
@@ -184,11 +188,12 @@ function formatKort(iso){const[y,m,d]=iso.split('-').map(Number);return d+' '+MA
 function dagWoord(n){return n===1?'dag':'dagen';}
 
 const SLEUTEL='wheresjack_state_v1';
-function defaultState(){return{anchorDate:'2026-06-21',anchorHolder:'Mario',switches:[{date:'2026-06-25',cat:'morning'},{date:'2026-06-30',cat:'morning'}],corrections:[]};}
+function defaultState(){return{anchorDate:'2026-06-21',anchorHolder:'Mario',startStand:0,switches:[{date:'2026-06-25',cat:'morning'},{date:'2026-06-30',cat:'morning'}],corrections:[]};}
 function load(){try{const r=localStorage.getItem(SLEUTEL);if(r)return JSON.parse(r);}catch(e){}return null;}
 function save(){try{localStorage.setItem(SLEUTEL,JSON.stringify(state));}catch(e){}}
 let state=load()||defaultState();
 if(!Array.isArray(state.corrections))state.corrections=[];
+if(typeof state.startStand!=='number')state.startStand=0;
 function corrTotaal(){return state.corrections.reduce((s,c)=>s+c.mario,0);}
 function metTeken(n){return (n>0?'+':'')+n;}
 
@@ -233,10 +238,9 @@ function render(){
   document.getElementById('statusMeta').innerHTML=
     'Dag '+periodDagen(ongoing)+' van deze periode<br>sinds '+formatNL(fromDayN(ongoing.firstN))+'.';
 
-  const standMario=(k-m)+corrTotaal();
+  const standMario=state.startStand+(k-m)+corrTotaal();
   zetGetal('getalMario',standMario);
   zetGetal('getalKurt',-standMario);
-  document.getElementById('corrStand').placeholder='Stand Mario (nu '+metTeken(standMario)+')';
   renderCorrecties();
 
   const vorige = periods.length>=2 ? periods[periods.length-2] : null;
@@ -281,21 +285,22 @@ document.getElementById('wisselDatum').value=todayISO();
 document.getElementById('btnInfo').addEventListener('click',()=>{document.getElementById('infopaneel').classList.toggle('open');});
 
 document.getElementById('btnCorrPaneel').addEventListener('click',()=>{document.getElementById('corrPaneel').classList.toggle('open');});
-document.getElementById('btnCorr').addEventListener('click',()=>{
+document.getElementById('startDatum').value=todayISO();
+document.getElementById('btnStart').addEventListener('click',()=>{
   const melding=document.getElementById('corrMelding');melding.textContent='';
-  const ruw=document.getElementById('corrStand').value.trim();
-  const doel=Number(ruw);
-  if(ruw===''||!Number.isInteger(doel)){melding.textContent='Vul een heel getal in, bijvoorbeeld -3 of 2.';return;}
-  const periods=computePeriods(todayISO());
-  let m=0,k=0;for(const p of periods){const c=periodDagen(p);if(p.holder==='Mario')m+=c;else k+=c;}
-  const huidig=(k-m)+corrTotaal();
-  const verschil=doel-huidig;
-  if(verschil===0){melding.textContent='Dat is al de huidige stand.';return;}
-  if(!confirm('Stand aanpassen?\nMario: '+metTeken(huidig)+' wordt '+metTeken(doel)+'\nKurt: '+metTeken(-huidig)+' wordt '+metTeken(-doel)))return;
-  const reden=document.getElementById('corrReden').value.trim();
-  state.corrections.push({date:todayISO(),mario:verschil,reden});
+  const datum=document.getElementById('startDatum').value;
+  if(!datum){melding.textContent='Vul eerst een datum in.';return;}
+  if(toDayN(datum)>toDayN(todayISO())){melding.textContent='De startdatum mag niet in de toekomst liggen.';return;}
+  const houder=document.getElementById('startHouder').value;
+  const ruw=document.getElementById('startStand').value.trim();
+  const stand=Number(ruw);
+  if(ruw===''||!Number.isInteger(stand)){melding.textContent='Vul de stand van Mario in als heel getal, bijvoorbeeld -3, 0 of 2.';return;}
+  if(!confirm('Nieuwe start?\nVanaf '+formatNL(datum)+' bij '+houder+'.\nStand op de avond ervoor: Mario '+metTeken(stand)+', Kurt '+metTeken(-stand)+'.\nAlle vroegere wissels worden gewist.'))return;
+  state={anchorDate:datum,anchorHolder:houder,startStand:stand,switches:[],corrections:[]};
   save();
-  document.getElementById('corrStand').value='';document.getElementById('corrReden').value='';
+  document.getElementById('startStand').value='';
+  document.getElementById('corrPaneel').classList.remove('open');
+  document.getElementById('wisselDatum').value=todayISO();
   render();
 });
 
