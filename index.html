@@ -81,7 +81,12 @@
   .rij-mini button{font-family:inherit;font-size:12px;padding:7px 10px;border:1px solid var(--lijn);border-radius:8px;background:#fff;color:var(--navy);cursor:pointer;flex:1;}
 
   /* voet met infoknop rechtsonder */
-  .foot{display:flex;justify-content:flex-end;margin-top:12px;}
+  .foot{display:flex;justify-content:flex-end;gap:6px;margin-top:12px;}
+  .foot .corr{font-size:11px;padding:4px 10px;border:1px solid var(--lijn);border-radius:999px;background:transparent;color:var(--navygrijs);cursor:pointer;font-family:inherit;line-height:1.4;}
+  .corr-rij{display:flex;gap:6px;margin-top:6px;}
+  .corr-rij input{font-family:inherit;font-size:15px;padding:8px 9px;border:1px solid var(--lijn);border-radius:8px;background:#fff;color:var(--navy);min-width:0;flex:1;}
+  .corr-rij button{font-family:inherit;font-size:14px;padding:8px 12px;border-radius:8px;cursor:pointer;background:var(--navy);border:1px solid var(--navy);color:#fff;flex:none;}
+  ul.hist .wis{background:none;border:none;color:var(--koraal);font-family:inherit;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;}
   .foot .info{font-size:11px;padding:4px 12px;border:1px solid var(--koraal);border-radius:999px;background:transparent;color:var(--koraal);cursor:pointer;font-family:inherit;line-height:1.4;}
   .infopaneel{display:none;margin-top:10px;}
   .infopaneel.open{display:block;}
@@ -139,6 +144,7 @@
   </div>
 
   <div class="foot">
+    <button class="corr" id="btnCorrPaneel">correctie</button>
     <button class="info" id="btnInfo">info</button>
   </div>
   <div class="infopaneel" id="infopaneel">
@@ -146,6 +152,16 @@
     <p><span class="u-tijd">Overdag (rond 14–16u)</span> — telt voor niemand.</p>
     <p><span class="u-tijd">'s Avonds (vanaf 20u)</span> — telt voor wie Jack afgeeft; de ontvanger begint de dag erna.</p>
     <p class="voetnoot">Positief: dagen tegoed. Negatief: dagen te veel gehad. Nul: evenwicht.</p>
+  </div>
+  <div class="infopaneel" id="corrPaneel">
+    <p>Enkel voor noodgevallen. Vul de juiste stand van Mario in, de stand van Kurt past zich vanzelf aan.</p>
+    <div class="corr-rij"><input type="text" id="corrReden" placeholder="Reden (niet verplicht)"></div>
+    <div class="corr-rij">
+      <input type="number" id="corrStand" step="1">
+      <button id="btnCorr">Pas aan</button>
+    </div>
+    <p class="melding" id="corrMelding"></p>
+    <ul class="hist" id="corrLijst"></ul>
   </div>
 
 </div>
@@ -168,10 +184,13 @@ function formatKort(iso){const[y,m,d]=iso.split('-').map(Number);return d+' '+MA
 function dagWoord(n){return n===1?'dag':'dagen';}
 
 const SLEUTEL='wheresjack_state_v1';
-function defaultState(){return{anchorDate:'2026-06-21',anchorHolder:'Mario',switches:[{date:'2026-06-25',cat:'morning'},{date:'2026-06-30',cat:'morning'}]};}
+function defaultState(){return{anchorDate:'2026-06-21',anchorHolder:'Mario',switches:[{date:'2026-06-25',cat:'morning'},{date:'2026-06-30',cat:'morning'}],corrections:[]};}
 function load(){try{const r=localStorage.getItem(SLEUTEL);if(r)return JSON.parse(r);}catch(e){}return null;}
 function save(){try{localStorage.setItem(SLEUTEL,JSON.stringify(state));}catch(e){}}
 let state=load()||defaultState();
+if(!Array.isArray(state.corrections))state.corrections=[];
+function corrTotaal(){return state.corrections.reduce((s,c)=>s+c.mario,0);}
+function metTeken(n){return (n>0?'+':'')+n;}
 
 function computePeriods(todayIso){
   const periods=[];const todayN=toDayN(todayIso);
@@ -214,8 +233,11 @@ function render(){
   document.getElementById('statusMeta').innerHTML=
     'Dag '+periodDagen(ongoing)+' van deze periode<br>sinds '+formatNL(fromDayN(ongoing.firstN))+'.';
 
-  zetGetal('getalMario',k-m);
-  zetGetal('getalKurt',m-k);
+  const standMario=(k-m)+corrTotaal();
+  zetGetal('getalMario',standMario);
+  zetGetal('getalKurt',-standMario);
+  document.getElementById('corrStand').placeholder='Stand Mario (nu '+metTeken(standMario)+')';
+  renderCorrecties();
 
   const vorige = periods.length>=2 ? periods[periods.length-2] : null;
   const rest = periods.slice(0, Math.max(0, periods.length-2)).reverse();
@@ -231,6 +253,21 @@ function render(){
   document.getElementById('ontvangerTekst').innerHTML='Bij een wissel gaat Jack naar <b>'+ANDER[houder]+'</b>.';
 }
 
+function renderCorrecties(){
+  const ul=document.getElementById('corrLijst');ul.innerHTML='';
+  state.corrections.forEach((c,i)=>{
+    const li=document.createElement('li');
+    const d=document.createElement('span');d.className='who';d.textContent=formatKort(c.date);
+    const t=document.createElement('span');t.className='range';
+    t.textContent='Mario '+metTeken(c.mario)+' / Kurt '+metTeken(-c.mario)+(c.reden?' ('+c.reden+')':'');
+    const w=document.createElement('button');w.className='wis';w.textContent='wis';
+    w.addEventListener('click',()=>{
+      if(confirm('Deze correctie van '+formatNL(c.date)+' verwijderen?')){state.corrections.splice(i,1);save();render();}
+    });
+    li.appendChild(d);li.appendChild(t);li.appendChild(w);ul.appendChild(li);
+  });
+}
+
 function zetGetal(id,waarde){
   const g=document.getElementById(id);
   g.textContent=(waarde>0?'+':'')+waarde;
@@ -242,6 +279,25 @@ else{const f=document.getElementById('foto');f.style.cssText='width:150px;flex:n
 
 document.getElementById('wisselDatum').value=todayISO();
 document.getElementById('btnInfo').addEventListener('click',()=>{document.getElementById('infopaneel').classList.toggle('open');});
+
+document.getElementById('btnCorrPaneel').addEventListener('click',()=>{document.getElementById('corrPaneel').classList.toggle('open');});
+document.getElementById('btnCorr').addEventListener('click',()=>{
+  const melding=document.getElementById('corrMelding');melding.textContent='';
+  const ruw=document.getElementById('corrStand').value.trim();
+  const doel=Number(ruw);
+  if(ruw===''||!Number.isInteger(doel)){melding.textContent='Vul een heel getal in, bijvoorbeeld -3 of 2.';return;}
+  const periods=computePeriods(todayISO());
+  let m=0,k=0;for(const p of periods){const c=periodDagen(p);if(p.holder==='Mario')m+=c;else k+=c;}
+  const huidig=(k-m)+corrTotaal();
+  const verschil=doel-huidig;
+  if(verschil===0){melding.textContent='Dat is al de huidige stand.';return;}
+  if(!confirm('Stand aanpassen?\nMario: '+metTeken(huidig)+' wordt '+metTeken(doel)+'\nKurt: '+metTeken(-huidig)+' wordt '+metTeken(-doel)))return;
+  const reden=document.getElementById('corrReden').value.trim();
+  state.corrections.push({date:todayISO(),mario:verschil,reden});
+  save();
+  document.getElementById('corrStand').value='';document.getElementById('corrReden').value='';
+  render();
+});
 
 document.getElementById('btnMeer').addEventListener('click',()=>{
   const rest=document.getElementById('histRest');

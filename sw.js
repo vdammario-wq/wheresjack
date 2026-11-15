@@ -1,4 +1,4 @@
-const CACHE = 'wheresjack-v1';
+const CACHE = 'wheresjack-v2';
 const ASSETS = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', e => {
@@ -12,6 +12,18 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Eerst online de nieuwste versie proberen, anders de bewaarde versie (offline).
 self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    fetch(e.request)
+      .then(r => {
+        if (r && r.ok) {
+          const kopie = r.clone();
+          caches.open(CACHE).then(c => c.put(e.request, kopie));
+        }
+        return r;
+      })
+      .catch(() => caches.match(e.request))
+  );
 });
